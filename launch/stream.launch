@@ -1,0 +1,13 @@
+<launch>
+  <arg name="signaling_url" default="ws://localhost:8080"/>
+  <arg name="width" default="320"/>
+  <arg name="height" default="240"/>
+  <arg name="fps" default="15"/>
+
+  <node pkg="webrtc_gst_cpp" type="webrtc_streamer_node" name="webrtc_streamer_node" output="screen">
+    <param name="signaling_url" value="$(arg signaling_url)" />
+    <param name="width" value="$(arg width)" />
+    <param name="height" value="$(arg height)" />
+    <param name="fps" value="$(arg fps)" />
+  </node>
+</launch>

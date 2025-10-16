@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>WebRTC Viewer (Phone as Caller)</title>
+<style>
+ body{margin:0;font-family:sans-serif;background:#111;color:#eee}
+ header{padding:12px;background:#1e1e1e}
+ main{padding:12px}
+ video{width:100%;max-height:80vh;background:black}
+ .row{margin:8px 0}
+ code{background:#222;padding:2px 6px;border-radius:4px}
+ button{padding:8px 12px;margin-right:8px}
+</style>
+</head>
+<body>
+<header>
+  <div>WebRTC Viewer (Phone)</div>
+  <div class="row">Server: <code id="origin"></code></div>
+  <div class="row">Status: <code id="status">idle</code></div>
+</header>
+<main>
+  <div class="row">
+    <button id="startBtn">Start</button>
+    <button id="stopBtn" disabled>Stop</button>
+  </div>
+  <video id="remote" autoplay playsinline></video>
+</main>
+<script>
+(() => {
+  const statusEl = document.getElementById('status');
+  const originEl = document.getElementById('origin');
+  const video = document.getElementById('remote');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+
+  const host = window.location.host;         // e.g., 10.42.0.1:8080
+  const wsUrl = `ws://${host}`;
+  originEl.textContent = `http://${host}`;
+
+  let pc = null;
+  let ws = null;
+
+  function logStatus(s) { statusEl.textContent = s; console.log(s); }
+
+  function setupPC() {
+    pc = new RTCPeerConnection({
+      iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }]
+    });
+    pc.onicecandidate = (e) => {
+      if (e.candidate && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'candidate',
+          candidate: e.candidate.candidate,
+          sdpMid: e.candidate.sdpMid,
+          sdpMLineIndex: e.candidate.sdpMLineIndex
+        }));
+      }
+    };
+    pc.ontrack = (ev) => {
+      const stream = ev.streams && ev.streams[0] ? ev.streams[0] : new MediaStream([ev.track]);
+      video.srcObject = stream;
+    };
+  }
+
+  async function start() {
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+
+    setupPC();
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = async () => {
+      logStatus('WS connected → creating offer');
+      try {
+        // Phone is caller: create offer right away
+        const offer = await pc.createOffer({ offerToReceiveVideo: true });
+        await pc.setLocalDescription(offer);
+        ws.send(JSON.stringify({ type: 'offer', sdp: offer.sdp }));
+        logStatus('Offer sent, waiting for answer...');
+      } catch (e) {
+        logStatus('Offer failed: ' + e);
+      }
+    };
+
+    ws.onmessage = async (m) => {
+      try {
+        const msg = JSON.parse(m.data);
+        if (msg.type === 'answer' && msg.sdp) {
+          logStatus('Answer received');
+          await pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
+          logStatus('Connected (awaiting media...)');
+        } else if (msg.type === 'candidate' && msg.candidate) {
+          try {
+            await pc.addIceCandidate({ candidate: msg.candidate, sdpMid: msg.sdpMid, sdpMLineIndex: msg.sdpMLineIndex });
+          } catch (e) { console.warn('addIceCandidate failed', e); }
+        }
+      } catch (e) { console.error(e); }
+    };
+
+    ws.onclose = () => logStatus('WS closed');
+  }
+
+  function stop() {
+    stopBtn.disabled = true;
+    startBtn.disabled = false;
+    if (pc) { pc.close(); pc = null; }
+    if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+    video.srcObject = null;
+    logStatus('Stopped');
+  }
+
+  startBtn.onclick = start;
+  stopBtn.onclick = stop;
+
+  // Auto start for convenience
+  start();
+})();
+</script>
+</body>
+</html>

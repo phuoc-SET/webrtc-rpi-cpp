@@ -25,7 +25,7 @@
     <button id="startBtn">Start</button>
     <button id="stopBtn" disabled>Stop</button>
   </div>
-  <video id="remote" autoplay playsinline></video>
+  <video id="remote" autoplay playsinline muted></video>
 </main>
 <script>
 (() => {
@@ -35,9 +35,10 @@
   const startBtn = document.getElementById('startBtn');
   const stopBtn = document.getElementById('stopBtn');
 
-  const host = window.location.host;         // e.g., 10.42.0.1:8080
-  const wsUrl = `ws://${host}`;
-  originEl.textContent = `http://${host}`;
+  const host = window.location.host;         // e.g., 10.42.0.1:8082
+  const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl = `${scheme}://${host}`;
+  originEl.textContent = `${window.location.protocol}//${host}`;
 
   let pc = null;
   let ws = null;
@@ -48,6 +49,9 @@
     pc = new RTCPeerConnection({
       iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }]
     });
+    // Tạo m-line video recvonly để đảm bảo remote có track
+    try { pc.addTransceiver('video', { direction: 'recvonly' }); } catch (e) { console.warn(e); }
+
     pc.onicecandidate = (e) => {
       if (e.candidate && ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
@@ -58,10 +62,24 @@
         }));
       }
     };
-    pc.ontrack = (ev) => {
+    pc.ontrack = async (ev) => {
       const stream = ev.streams && ev.streams[0] ? ev.streams[0] : new MediaStream([ev.track]);
       video.srcObject = stream;
+      try { await video.play(); } catch (e) { console.warn('autoplay blocked:', e); }
     };
+  }
+
+  async function sendOffer() {
+    if (!pc || !ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      const offer = await pc.createOffer({ offerToReceiveVideo: true });
+      await pc.setLocalDescription(offer);
+      ws.send(JSON.stringify({ type: 'offer', sdp: offer.sdp }));
+      logStatus('Offer sent, waiting for answer...');
+    } catch (e) {
+      logStatus('Offer failed: ' + e);
+      console.error(e);
+    }
   }
 
   async function start() {
@@ -73,38 +91,45 @@
 
     ws.onopen = async () => {
       logStatus('WS connected → creating offer');
-      try {
-        // Phone is caller: create offer right away
-        const offer = await pc.createOffer({ offerToReceiveVideo: true });
-        await pc.setLocalDescription(offer);
-        ws.send(JSON.stringify({ type: 'offer', sdp: offer.sdp }));
-        logStatus('Offer sent, waiting for answer...');
-      } catch (e) {
-        logStatus('Offer failed: ' + e);
-      }
+      await sendOffer();
     };
 
     ws.onmessage = async (m) => {
       try {
-        const msg = JSON.parse(m.data);
+        const txt = typeof m.data === 'string' ? m.data : await m.data.text();
+        const msg = JSON.parse(txt);
         if (msg.type === 'answer' && msg.sdp) {
           logStatus('Answer received');
           await pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
-          logStatus('Connected (awaiting media...)');
         } else if (msg.type === 'candidate' && msg.candidate) {
           try {
-            await pc.addIceCandidate({ candidate: msg.candidate, sdpMid: msg.sdpMid, sdpMLineIndex: msg.sdpMLineIndex });
-          } catch (e) { console.warn('addIceCandidate failed', e); }
+            await pc.addIceCandidate({
+              candidate: msg.candidate,
+              sdpMid: msg.sdpMid ?? '0',
+              sdpMLineIndex: msg.sdpMLineIndex ?? 0
+            });
+          } catch (e) {
+            console.warn('addIceCandidate failed', e);
+          }
+        } else if (msg.type === 'ready') {
+          // Có peer mới vào → gửi lại offer để tránh rơi mất offer
+          console.log('Received ready → resend offer');
+          await sendOffer();
         }
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.warn('WS message parse failed', e);
+        logStatus('WS message parse failed');
+      }
     };
 
     ws.onclose = () => logStatus('WS closed');
+    ws.onerror = (e) => logStatus('WS error: ' + (e?.message || 'unknown'));
   }
 
   function stop() {
-    stopBtn.disabled = true;
     startBtn.disabled = false;
+    stopBtn.disabled = true;
+
     if (pc) { pc.close(); pc = null; }
     if (ws && ws.readyState === WebSocket.OPEN) ws.close();
     video.srcObject = null;
@@ -114,7 +139,7 @@
   startBtn.onclick = start;
   stopBtn.onclick = stop;
 
-  // Auto start for convenience
+  // Auto start
   start();
 })();
 </script>

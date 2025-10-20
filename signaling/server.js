@@ -1,14 +1,18 @@
 // One-port HTTP + WebSocket signaling + static client
-// Run: PORT=8080 node server.js
+// Run: PORT=8082 node server.js
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 8082;
 const publicDir = path.join(__dirname, 'public');
 
 const server = http.createServer((req, res) => {
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    return res.end('ok');
+  }
   // Serve index.html and static files
   let filePath = req.url === '/' ? path.join(publicDir, 'index.html') : path.join(publicDir, req.url);
   // Prevent directory traversal
@@ -19,7 +23,6 @@ const server = http.createServer((req, res) => {
     if (err) {
       res.writeHead(404); return res.end('Not found');
     }
-    // Basic content-type mapping
     const ext = path.extname(filePath);
     const contentType = ({
       '.html': 'text/html',
@@ -27,7 +30,10 @@ const server = http.createServer((req, res) => {
       '.css': 'text/css',
       '.map': 'application/json'
     })[ext] || 'application/octet-stream';
-    res.writeHead(200, { 'Content-Type': contentType });
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'X-Content-Type-Options': 'nosniff'
+    });
     res.end(data);
   });
 });
@@ -36,18 +42,29 @@ const wss = new WebSocket.Server({ server });
 
 wss.on('connection', (ws) => {
   console.log('WS client connected, total:', wss.clients.size);
+
+  // Thông báo 'ready' tới các client khác để họ chủ động gửi lại offer
+  wss.clients.forEach((client) => {
+    if (client !== ws && client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify({ type: 'ready' }));
+    }
+  });
+
   ws.on('message', (msg) => {
-    // Simple relay to others
+    // Ép mọi bản tin relay thành text để tương thích websocketpp của ROS
+    const txt = (typeof msg === 'string') ? msg : msg.toString('utf8');
+    // Relay tới các client khác
     wss.clients.forEach((client) => {
       if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(msg);
+        client.send(txt);
       }
     });
   });
+
   ws.on('close', () => console.log('WS client disconnected'));
 });
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`HTTP+WS signaling server on http://0.0.0.0:${PORT}`);
-  console.log(`Open from phone browser: http://<UBUNTU_IP>:${PORT}/`);
+  console.log(`Open from phone browser: http://<PI_IP>:${PORT}/`);
 });

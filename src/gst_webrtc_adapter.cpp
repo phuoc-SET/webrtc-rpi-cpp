@@ -246,101 +246,32 @@ bool GstWebRTCAdapter::Start() {
   // Optional STUN (LAN thường không cần)
   // g_object_set(impl_->webrtc, "stun-server", "stun://stun.l.google.com:19302", nullptr);
 
-  // ===================== LINK pay0 -> webrtcbin (robust on Pi/Clover) =====================
-  // Prepare RTP caps for VP8 (matches rtpvp8pay)
-  GstCaps* rtp_caps = gst_caps_new_simple("application/x-rtp",
-      "media",         G_TYPE_STRING, "video",
-      "encoding-name", G_TYPE_STRING, "VP8",
-      "payload",       G_TYPE_INT,    96,
-      "clock-rate",    G_TYPE_INT,    90000,
-      NULL);
+  // Link pay0:src -> webrtcbin:sink_0 (correct request pad for webrtcbin)
+  GstPad* pay_src = gst_element_get_static_pad(impl_->pay0, "src");
+  // GstPad* webrtc_sink = gst_element_get_request_pad(impl_->webrtc, "sink_0");
 
-  bool linked_ok = false;
+  // Fix 1:
+  GstPad* webrtc_sink = gst_element_get_request_pad(impl_->webrtc, "sink_%u");
 
-  // Ensure webrtcbin is at least READY before requesting pads on some builds
-  gst_element_set_state(impl_->webrtc, GST_STATE_READY);
-
-  // Attempt 1: Let GStreamer internally request sink_%u via filtered link
-  if (gst_element_link_filtered(impl_->pay0, impl_->webrtc, rtp_caps)) {
-    linked_ok = true;
-    std::cerr << "[link] pay0 -> webrtcbin via element_link_filtered (auto request pad)\n";
-  }
-
-  // Attempt 2: Explicit request pad then pad-link
-  if (!linked_ok) {
-    GstPad* pay_src = gst_element_get_static_pad(impl_->pay0, "src");
-    GstPad* webrtc_sink = nullptr;
-
-#if GST_CHECK_VERSION(1,20,0)
-    // Simple helper exists on >=1.20
-    webrtc_sink = gst_element_request_pad_simple(impl_->webrtc, (gchar*)"sink_%u");
-#else
-    // Enumerate templates and request a sink_%u pad
-    {
-      GstElementFactory* fact = gst_element_get_factory(impl_->webrtc);
-      const GList* templates = gst_element_factory_get_static_pad_templates(fact);
-      for (const GList* it = templates; it; it = it->next) {
-        GstStaticPadTemplate* t = (GstStaticPadTemplate*)it->data;
-        if (t->direction == GST_PAD_SINK &&
-            t->presence == GST_PAD_REQUEST &&
-            g_str_has_prefix(t->name_template, "sink_")) {
-          GstPadTemplate* templ = gst_static_pad_template_get(t);
-          // First try NULL caps
-          webrtc_sink = gst_element_request_pad(impl_->webrtc, templ, nullptr, nullptr);
-          gst_object_unref(templ);
-          break;
-        }
-      }
-    }
-    // If still NULL, try requesting with RTP caps (some builds require it)
+  if (!pay_src || !webrtc_sink) {
+    if (!pay_src) std::cerr << "Failed to get pay0 src pad\n";
     if (!webrtc_sink) {
-      GstElementFactory* fact2 = gst_element_get_factory(impl_->webrtc);
-      const GList* templates2 = gst_element_factory_get_static_pad_templates(fact2);
-      for (const GList* it = templates2; it; it = it->next) {
-        GstStaticPadTemplate* t = (GstStaticPadTemplate*)it->data;
-        if (t->direction == GST_PAD_SINK &&
-            t->presence == GST_PAD_REQUEST &&
-            g_str_has_prefix(t->name_template, "sink_")) {
-          GstPadTemplate* templ = gst_static_pad_template_get(t);
-          webrtc_sink = gst_element_request_pad(impl_->webrtc, templ, nullptr, rtp_caps);
-          gst_object_unref(templ);
-          break;
-        }
-      }
+      std::cerr << "Failed to request webrtcbin sink_0 pad\n";
+      debug_list_pad_templates(impl_->webrtc, "webrtcbin");
     }
-#endif
-
-    if (!pay_src || !webrtc_sink) {
-      if (!pay_src) std::cerr << "Failed to get pay0 src pad\n";
-      if (!webrtc_sink) {
-        std::cerr << "Failed to request webrtcbin sink pad via template sink_%u\n";
-        debug_list_pad_templates(impl_->webrtc, "webrtcbin");
-      }
-      if (pay_src) gst_object_unref(pay_src);
-      if (webrtc_sink) gst_object_unref(webrtc_sink);
-      gst_caps_unref(rtp_caps);
-      std::cerr << "Failed to get pads for linking pay0 -> webrtcbin\n";
-      return false;
-    }
-
-    if (gst_pad_link(pay_src, webrtc_sink) == GST_PAD_LINK_OK) {
-      linked_ok = true;
-      std::cerr << "[link] pay0.src -> webrtcbin.sink (via explicit request-pad)\n";
-    } else {
-      std::cerr << "Failed to link pay0 src to webrtcbin sink\n";
-    }
-
-    gst_object_unref(pay_src);
-    gst_object_unref(webrtc_sink);
-  }
-
-  gst_caps_unref(rtp_caps);
-
-  if (!linked_ok) {
+    if (pay_src) gst_object_unref(pay_src);
+    if (webrtc_sink) gst_object_unref(webrtc_sink);
     std::cerr << "Failed to get pads for linking pay0 -> webrtcbin\n";
     return false;
   }
-  // =================== END linking fix ===================
+  if (gst_pad_link(pay_src, webrtc_sink) != GST_PAD_LINK_OK) {
+    gst_object_unref(pay_src);
+    gst_object_unref(webrtc_sink);
+    std::cerr << "Failed to link pay0 src to webrtcbin sink_0\n";
+    return false;
+  }
+  gst_object_unref(pay_src);
+  gst_object_unref(webrtc_sink);
 
   // ICE callback (will be emitted on the GStreamer thread)
   g_signal_connect(impl_->webrtc, "on-ice-candidate", G_CALLBACK(on_ice_candidate), impl_.get());

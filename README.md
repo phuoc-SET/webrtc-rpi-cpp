@@ -33,3 +33,4 @@ Notes:
 - The signaling client uses websocketpp. Ensure libwebsocketpp-dev and Boost are available.
 - The node is optimized for local simulation (lower fps/resolution possible).
 ```# webrtc_clvoer_drone
+# webrtc_rpi

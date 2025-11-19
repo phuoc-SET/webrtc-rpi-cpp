@@ -99,4 +99,3 @@ Open a browser on a device connected to the same network as the Raspberry Pi and
 ```
 http://[RPI-IP]:8080/
 ```
-# webrtc-rpi-cpp

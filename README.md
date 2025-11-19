@@ -14,7 +14,7 @@ A C++ application using GStreamer's `webrtcbin` to publish video from a camera d
 **Clone the repository:**
 
 ```
-git clone [repository-url]
+git clone https://github.com/phuoc-SET/webrtc-rpi-cpp.git
 ```
 
 **Cross-compile**

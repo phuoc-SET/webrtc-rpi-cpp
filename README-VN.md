@@ -14,7 +14,7 @@ C++ app dùng GStreamer `webrtcbin` để publish video từ camera gắn trực
 **Clone repo:**
 
 ```
-
+git clone https://github.com/phuoc-SET/webrtc-rpi-cpp.git
 ```
 
 **Cross-compile**

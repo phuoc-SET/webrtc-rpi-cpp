@@ -1,25 +1,31 @@
 #!/usr/bin/env bash
-set -e
-echo "Installing system deps for Ubuntu 20.04 (Noetic)..."
-sudo apt-get update
+set -euo pipefail
 
+sudo apt update
 sudo apt-get install -y \
   build-essential \
   cmake \
   pkg-config \
+  gstreamer1.0-tools \
+  gstreamer1.0-x \
+  gstreamer1.0-alsa \
+  gstreamer1.0-pulseaudio \
   libgstreamer1.0-dev \
   libgstreamer-plugins-base1.0-dev \
+  libgstreamer-plugins-bad1.0-dev \
   gstreamer1.0-plugins-base \
   gstreamer1.0-plugins-good \
   gstreamer1.0-plugins-bad \
   gstreamer1.0-plugins-ugly \
   gstreamer1.0-libav \
+  gstreamer1.0-nice \
+  gstreamer1.0-libcamera \
+  libnice10 \
+  libnice-dev \
   gir1.2-gstreamer-1.0 \
   gir1.2-gst-plugins-base-1.0 \
-  libgstreamer-plugins-bad1.0-dev \
-  libgstreamer-plugins-base1.0-dev \
-  libgstreamer-allocators-1.0-dev \
   libopencv-dev \
+  python3-opencv \
   libjsoncpp-dev \
   nlohmann-json3-dev \
   libwebsocketpp-dev \
@@ -27,8 +33,4 @@ sudo apt-get install -y \
   libboost-thread-dev \
   nodejs npm
 
-# Python tools used elsewhere (optional)
-sudo apt-get install -y python3-opencv python3-pip
-pip3 install --user websockets
-
-echo "Note: if gst webrtc plugin (webrtcbin) is missing, you may need to build gstreamer-plugins-bad with webrtc enabled."
+echo "Dependencies installed."

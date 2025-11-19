@@ -1,11 +1,11 @@
 // One-port HTTP + WebSocket signaling + static client
-// Run: PORT=8082 node server.js
+// Run: PORT=8080 node server.js
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
 
-const PORT = process.env.PORT || 8082;
+const PORT = process.env.PORT || 8080;
 const publicDir = path.join(__dirname, 'public');
 
 const server = http.createServer((req, res) => {
@@ -42,8 +42,6 @@ const wss = new WebSocket.Server({ server });
 
 wss.on('connection', (ws) => {
   console.log('WS client connected, total:', wss.clients.size);
-
-  // Thông báo 'ready' tới các client khác để họ chủ động gửi lại offer
   wss.clients.forEach((client) => {
     if (client !== ws && client.readyState === WebSocket.OPEN) {
       client.send(JSON.stringify({ type: 'ready' }));
@@ -51,9 +49,7 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('message', (msg) => {
-    // Ép mọi bản tin relay thành text để tương thích websocketpp của ROS
     const txt = (typeof msg === 'string') ? msg : msg.toString('utf8');
-    // Relay tới các client khác
     wss.clients.forEach((client) => {
       if (client !== ws && client.readyState === WebSocket.OPEN) {
         client.send(txt);
@@ -66,5 +62,5 @@ wss.on('connection', (ws) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`HTTP+WS signaling server on http://0.0.0.0:${PORT}`);
-  console.log(`Open from phone browser: http://<PI_IP>:${PORT}/`);
+  console.log(`Open from browser: http://<PI_IP>:${PORT}/`);
 });
